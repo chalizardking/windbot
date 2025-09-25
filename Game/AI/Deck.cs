@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using YGOSharp.OCGWrapper;
+using System.Text;
 
 namespace WindBot.Game
 {
@@ -28,46 +29,81 @@ namespace WindBot.Game
                 ExtraCards.Add(cardId);
         }
 
+        private static uint[] ParseBase64DeckArray(string str)
+        {
+            byte[] arr = Convert.FromBase64String(str);
+            uint[] decoded = new uint[arr.Length / 4];
+            Buffer.BlockCopy(arr, 0, decoded, 0, arr.Length);
+            return decoded;
+        }
+
         public static Deck Load(string name)
         {
             StreamReader reader = null;
             Deck deck = new Deck();
             try
             {
-                reader = new StreamReader(new FileStream(Path.IsPathRooted(name) ? name : Path.Combine(Program.AssetPath, "Decks/", name + ".ydk"), FileMode.Open, FileAccess.Read));
-
-                bool main = true;
-                bool side = false;
-
-                while (!reader.EndOfStream)
+                if (name.StartsWith("ydke://"))
                 {
-                    string line = reader.ReadLine();
-                    if (line == null)
-                        continue;
+                    name = name.Substring("ydke://".Length);
+                    string[] tokens = name.Split(new char[1] { '!' });
 
-                    line = line.Trim();
-                    if (line.Equals("#extra"))
-                        main = false;
-                    else if (line.StartsWith("#"))
-                        continue;
-                    if (line.Equals("!side"))
+                    if (tokens.Length != 4)
+                        throw new Exception("no");
+
+                    foreach(int code in ParseBase64DeckArray(tokens[0]))
                     {
-                        side = true;
-                        continue;
+                        deck.AddNewCard(code, true, false);
                     }
 
-                    int id;
-                    if (!int.TryParse(line, out id))
-                        continue;
+                    foreach (int code in ParseBase64DeckArray(tokens[1]))
+                    {
+                        deck.AddNewCard(code, false, false);
+                    }
 
-                    deck.AddNewCard(id, main, side);
+                    foreach (int code in ParseBase64DeckArray(tokens[2]))
+                    {
+                        deck.AddNewCard(code, false, true);
+                    }
                 }
+                else
+                {
+                    reader = new StreamReader(new FileStream(Path.IsPathRooted(name) ? name : Path.Combine(Path.Combine(Program.AssetPath, "Decks/"), name + ".ydk"), FileMode.Open, FileAccess.Read));
 
-                reader.Close();
+                    bool main = true;
+                    bool side = false;
+
+                    while (!reader.EndOfStream)
+                    {
+                        string line = reader.ReadLine();
+                        if (line == null)
+                            continue;
+
+                        line = line.Trim();
+                        if (line.Equals("#extra"))
+                            main = false;
+                        else if (line.StartsWith("#"))
+                            continue;
+                        if (line.Equals("!side"))
+                        {
+                            side = true;
+                            continue;
+                        }
+
+                        int id;
+                        if (!int.TryParse(line, out id))
+                            continue;
+
+                        deck.AddNewCard(id, main, side);
+                    }
+
+                    reader.Close();
+                }
             }
             catch (Exception)
             {
                 Logger.WriteLine("Failed to load deck: " + name + ".");
+                deck = null;
                 reader?.Close();
             }
             return deck;
