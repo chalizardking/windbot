@@ -103,6 +103,117 @@ namespace WindBot.Game.AI.Decks
             AddExecutor(ExecutorType.SpellSet, DefaultSpellSet);
         }
 
+        public override int OnSelectCard(IList<ClientCard> cards, int min, int max, int hint, bool cancelable)
+        {
+            // Detect Graceful Charity activation (discard 2 cards from hand of 5)
+            if (cards.Count == Bot.Hand.Count && min == 2 && max == 2 && cards.All(card => card.Location == CardLocation.Hand))
+            {
+                return PerformGracefulCharityDiscards(cards);
+            }
+
+            return base.OnSelectCard(cards, min, max, hint, cancelable);
+        }
+
+        private int PerformGracefulCharityDiscards(IList<ClientCard> handCards)
+        {
+            List<ClientCard> toDiscard = new List<ClientCard>();
+            List<ClientCard> availableCards = handCards.ToList();
+
+            // Priority 1: Night Assailant (returns to hand when discarded)
+            var nightAssailant = availableCards.FirstOrDefault(card => card.Id == CardId.NightAssailant);
+            if (nightAssailant != null)
+            {
+                toDiscard.Add(nightAssailant);
+                availableCards.Remove(nightAssailant);
+            }
+
+            // Priority 2: LIGHT/DARK balance for graveyard setup
+            if (toDiscard.Count < 2)
+            {
+                int graveyardLight = Bot.Graveyard.Count(card => card.HasAttribute(CardAttribute.Light));
+                int graveyardDark = Bot.Graveyard.Count(card => card.HasAttribute(CardAttribute.Dark));
+
+                ClientCard balanceCard = null;
+
+                if (graveyardLight < graveyardDark)
+                {
+                    // Need more LIGHT in graveyard
+                    balanceCard = availableCards.FirstOrDefault(card =>
+                        card.HasAttribute(CardAttribute.Light) &&
+                        card.Id != CardId.BlackLusterSoldier && // Don't discard key cards
+                        card.Id != CardId.ChaosSorcerer &&
+                        card.Id != CardId.PotOfGreed);
+                }
+                else if (graveyardDark < graveyardLight)
+                {
+                    // Need more DARK in graveyard
+                    balanceCard = availableCards.FirstOrDefault(card =>
+                        card.HasAttribute(CardAttribute.Dark) &&
+                        card.Id != CardId.BlackLusterSoldier &&
+                        card.Id != CardId.ChaosSorcerer &&
+                        card.Id != CardId.PotOfGreed);
+                }
+
+                if (balanceCard != null)
+                {
+                    toDiscard.Add(balanceCard);
+                    availableCards.Remove(balanceCard);
+                }
+            }
+
+            // Priority 3: Discard duplicates
+            if (toDiscard.Count < 2)
+            {
+                var duplicates = availableCards.GroupBy(card => card.Id)
+                                              .Where(group => group.Count() > 1)
+                                              .SelectMany(group => group.Skip(1))
+                                              .Where(card => card.Id != CardId.BlackLusterSoldier &&
+                                                           card.Id != CardId.ChaosSorcerer &&
+                                                           card.Id != CardId.PotOfGreed);
+
+                foreach (var duplicate in duplicates)
+                {
+                    if (toDiscard.Count >= 2) break;
+                    toDiscard.Add(duplicate);
+                    availableCards.Remove(duplicate);
+                }
+            }
+
+            // Priority 4: Discard defensive cards (aggro deck)
+            while (toDiscard.Count < 2 && availableCards.Count > 0)
+            {
+                // Never discard these key cards
+                var keyCards = new[] { CardId.BlackLusterSoldier, CardId.ChaosSorcerer, CardId.PotOfGreed };
+                var nonKeyCards = availableCards.Where(card => !keyCards.Contains(card.Id)).ToList();
+
+                if (nonKeyCards.Count > 0)
+                {
+                    // For aggro: Discard defensive cards and lowest ATK monsters
+                    var cardToDiscard = nonKeyCards.OrderBy(card => card.IsMonster() ? card.Attack : 0).First();
+                    toDiscard.Add(cardToDiscard);
+                    availableCards.Remove(cardToDiscard);
+                }
+                else if (availableCards.Count > 0)
+                {
+                    // Last resort
+                    toDiscard.Add(availableCards.First());
+                    availableCards.Remove(availableCards.First());
+                }
+            }
+
+            // Return selection mask for the 2 cards to discard
+            int selection = 0;
+            for (int i = 0; i < handCards.Count; i++)
+            {
+                if (toDiscard.Contains(handCards[i]))
+                {
+                    selection |= (1 << i);
+                }
+            }
+
+            return selection;
+        }
+
         private bool ActivateScapegoat()
         {
             // Only use defensively when needed
