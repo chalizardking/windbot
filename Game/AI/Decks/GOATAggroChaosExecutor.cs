@@ -290,13 +290,30 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateChaosSorcerer()
         {
-            // Banish threats immediately for aggressive push
-            if (Enemy.GetMonsters().Any(card => card.IsFaceup()))
+            // Aggressive Chaos Sorcerer - clear path for lethal damage
+            if (!Enemy.GetMonsters().Any(card => card.IsFaceup()))
+                return false;
+
+            int chaosSorcererAttack = Card.Attack;
+            int totalDamage = CalculateOtherMonstersAttack() + chaosSorcererAttack;
+
+            // If banishing clears path for lethal, do it immediately
+            if (totalDamage >= Enemy.LifePoints)
             {
                 ClientCard target = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
                 AI.SelectCard(target);
                 return true;
             }
+
+            // Aggressive deck - banish threats to maintain pressure
+            // But don't waste on small threats
+            ClientCard bestTarget = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
+            if (bestTarget.Attack >= 1500 || Enemy.GetMonsterCount() >= 2)
+            {
+                AI.SelectCard(bestTarget);
+                return true;
+            }
+
             return false;
         }
 
