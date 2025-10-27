@@ -329,13 +329,46 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateChaosSorcerer()
         {
-            // Banish face-up threats repeatedly
-            if (Enemy.GetMonsters().Any(card => card.IsFaceup()))
+            // Smart Chaos Sorcerer usage - check if banishing helps win
+            if (!Enemy.GetMonsters().Any(card => card.IsFaceup()))
+                return false;
+
+            int chaosSorcererAttack = Card.Attack;
+
+            // Calculate if using effect helps us win
+            int totalDamage = CalculateOtherMonstersAttack() + chaosSorcererAttack;
+
+            // Check if banishing a monster clears the path for lethal
+            if (totalDamage >= Enemy.LifePoints)
             {
+                // We might have lethal if we banish blockers
                 ClientCard target = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
                 AI.SelectCard(target);
                 return true;
             }
+
+            // Check if we should save the effect
+            if (Enemy.GetMonsterCount() == 1 && Enemy.GetMonsters().First().Attack < chaosSorcererAttack)
+            {
+                // We can attack over it anyway - consider saving effect
+                // Only use if the threat is significant (2000+ ATK)
+                if (Enemy.GetMonsters().First().Attack >= 2000)
+                {
+                    ClientCard target = Enemy.GetMonsters().First();
+                    AI.SelectCard(target);
+                    return true;
+                }
+                return false;
+            }
+
+            // Multiple threats or strong single threat - use effect
+            ClientCard bestTarget = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
+            if (bestTarget.Attack >= 1800)
+            {
+                AI.SelectCard(bestTarget);
+                return true;
+            }
+
             return false;
         }
 
