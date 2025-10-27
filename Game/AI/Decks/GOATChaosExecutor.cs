@@ -178,15 +178,68 @@ namespace WindBot.Game.AI.Decks
             // Banish key threats or attack twice for game
             if (Card.Location == CardLocation.MonsterZone && !Card.IsDisabled())
             {
-                // Banish enemy's strongest monster
                 if (Enemy.GetMonsterCount() > 0)
                 {
-                    ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
-                    AI.SelectCard(target);
+                    // Calculate lethal damage scenarios
+                    int blsAttack = Card.Attack;
+                    int otherMonstersAttack = CalculateOtherMonstersAttack();
+                    int enemyLP = Enemy.LifePoints;
+
+                    // Scenario 1: Check if double attack (no effect) is lethal
+                    int doubleAttackDamage = (blsAttack * 2) + otherMonstersAttack;
+                    if (doubleAttackDamage >= enemyLP)
+                    {
+                        // DON'T use effect - double attack wins game
+                        return false;
+                    }
+
+                    // Scenario 2: Check if banish + attack is lethal
+                    int banishAttackDamage = blsAttack + otherMonstersAttack;
+                    if (banishAttackDamage >= enemyLP)
+                    {
+                        // USE effect - removes blocker and wins game
+                        ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
+                        AI.SelectCard(target);
+                        return true;
+                    }
+
+                    // Scenario 3: Not lethal - make smart board control decision
+                    ClientCard strongestEnemy = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
+
+                    // Only banish significant threats (2000+ ATK)
+                    if (strongestEnemy.Attack >= 2000)
+                    {
+                        AI.SelectCard(strongestEnemy);
+                        return true;
+                    }
+
+                    // If threat is weak, check if we can beat it in battle
+                    if (blsAttack > strongestEnemy.Attack)
+                    {
+                        // Can beat it by attacking, save effect for later
+                        return false;
+                    }
+
+                    // Can't beat it by attacking, use effect
+                    AI.SelectCard(strongestEnemy);
                     return true;
                 }
             }
             return false;
+        }
+
+        private int CalculateOtherMonstersAttack()
+        {
+            // Sum ATK of all Bot monsters except the current card (BLS or Chaos Sorcerer)
+            int totalAttack = 0;
+            foreach (ClientCard monster in Bot.GetMonsters())
+            {
+                if (monster != Card && monster.IsAttack())
+                {
+                    totalAttack += monster.Attack;
+                }
+            }
+            return totalAttack;
         }
 
         private bool SummonChaosSorcerer()
