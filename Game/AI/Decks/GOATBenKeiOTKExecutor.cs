@@ -140,7 +140,7 @@ namespace WindBot.Game.AI.Decks
                 if (damage >= Enemy.LifePoints)
                     return true;
             }
-            return base.OnPrePreBattleBetween(attacker, defender);
+            return base.OnPreBattleBetween(attacker, defender);
         }
     }
 }
