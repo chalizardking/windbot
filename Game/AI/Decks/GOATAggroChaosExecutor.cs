@@ -103,6 +103,69 @@ namespace WindBot.Game.AI.Decks
             AddExecutor(ExecutorType.SpellSet, DefaultSpellSet);
         }
 
+        private bool ActivateGracefulCharity()
+        {
+            // Aggressive deck - setup graveyard for Chaos while maintaining pressure
+            return Bot.Hand.Count > 0;
+        }
+
+        public override IList<ClientCard> OnSelectCard(IList<ClientCard> cards, int min, int max, long hint, bool cancelable)
+        {
+            // Handle Graceful Charity discards - prioritize Night Assailant recursion
+            if (Card != null && Card.Id == CardId.GracefulCharity && min == 2 && max == 2)
+            {
+                List<ClientCard> toDiscard = new List<ClientCard>();
+
+                // Priority 1: Discard Night Assailant (returns to hand) - essentially free
+                var nightAssailants = cards.Where(c => c.Id == CardId.NightAssailant).ToList();
+                foreach (var na in nightAssailants)
+                {
+                    if (toDiscard.Count < 2)
+                        toDiscard.Add(na);
+                }
+
+                // Priority 2: Setup LIGHT/DARK for Chaos summons
+                if (toDiscard.Count < 2)
+                {
+                    int lightInGrave = Bot.Graveyard.Count(card => card.HasAttribute(CardAttribute.Light));
+                    int darkInGrave = Bot.Graveyard.Count(card => card.HasAttribute(CardAttribute.Dark));
+
+                    if (lightInGrave == 0 || darkInGrave < lightInGrave)
+                    {
+                        var darkMonster = cards.Where(c => c.IsMonster() && c.HasAttribute(CardAttribute.Dark)
+                            && c.Id != CardId.BlackLusterSoldier && c.Id != CardId.ChaosSorcerer
+                            && !toDiscard.Contains(c)).FirstOrDefault();
+                        if (darkMonster != null)
+                            toDiscard.Add(darkMonster);
+                    }
+
+                    if (toDiscard.Count < 2 && (darkInGrave == 0 || lightInGrave < darkInGrave))
+                    {
+                        var lightMonster = cards.Where(c => c.IsMonster() && c.HasAttribute(CardAttribute.Light)
+                            && !toDiscard.Contains(c)).FirstOrDefault();
+                        if (lightMonster != null)
+                            toDiscard.Add(lightMonster);
+                    }
+                }
+
+                // Priority 3: Discard weakest cards
+                while (toDiscard.Count < 2)
+                {
+                    var weakCard = cards.Where(c => !toDiscard.Contains(c)
+                        && c.Id != CardId.BlackLusterSoldier && c.Id != CardId.ChaosSorcerer).OrderBy(c => c.Attack).FirstOrDefault();
+                    if (weakCard != null)
+                        toDiscard.Add(weakCard);
+                    else
+                        break;
+                }
+
+                if (toDiscard.Count == 2)
+                    return toDiscard;
+            }
+
+            return base.OnSelectCard(cards, min, max, hint, cancelable);
+        }
+
         private bool ActivateScapegoat()
         {
             // Only use defensively when needed
