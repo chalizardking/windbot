@@ -184,8 +184,35 @@ namespace WindBot.Game.AI.Decks
             ClientCard morphingJar = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MorphingJar && card.IsFacedown());
             if (morphingJar != null)
             {
-                AI.SelectCard(morphingJar);
-                return true;
+                // Deck-out tracking: Morphing Jar will force both players to draw 5 cards
+
+                // CRITICAL: Don't flip if we would deck out
+                if (Bot.Deck.Count <= 5)
+                    return false;
+
+                // GAME-WINNING: Flip immediately if enemy will deck out
+                if (Enemy.Deck.Count <= 5)
+                {
+                    AI.SelectCard(morphingJar);
+                    return true;
+                }
+
+                // AGGRESSIVE: Prioritize when enemy deck is low
+                if (Enemy.Deck.Count <= 10 && Bot.Deck.Count >= 6)
+                {
+                    AI.SelectCard(morphingJar);
+                    return true;
+                }
+
+                // SAFE: Only flip if we have comfortable buffer
+                if (Bot.Deck.Count >= 10)
+                {
+                    AI.SelectCard(morphingJar);
+                    return true;
+                }
+
+                // Don't flip if borderline unsafe
+                return false;
             }
 
             // Flip Magician of Faith for effect
