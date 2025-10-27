@@ -212,17 +212,61 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateBLS()
         {
-            // Banish key threats or attack twice
+            // Smart BLS effect usage - prioritize game-winning plays
             if (Card.Location == CardLocation.MonsterZone && !Card.IsDisabled())
             {
-                if (Enemy.GetMonsterCount() > 0)
+                int blsAttack = Card.Attack;
+
+                // Calculate if we can win WITHOUT using effect (double attack)
+                int damageWithoutEffect = blsAttack * 2; // Double attack
+                int totalDamageWithoutEffect = damageWithoutEffect + CalculateOtherMonstersAttack();
+
+                // Calculate if we can win WITH effect (banish + single attack)
+                int damageWithEffect = blsAttack + CalculateOtherMonstersAttack();
+
+                // If we can win without using effect, save it for later
+                if (totalDamageWithoutEffect >= Enemy.LifePoints)
                 {
+                    // Don't use effect - just attack twice for game
+                    return false;
+                }
+
+                // If using effect and attacking wins the game, do it
+                if (damageWithEffect >= Enemy.LifePoints && Enemy.GetMonsterCount() > 0)
+                {
+                    // Banish the monster blocking our win
                     ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
                     AI.SelectCard(target);
                     return true;
                 }
+
+                // Otherwise, banish the biggest threat to gain board advantage
+                if (Enemy.GetMonsterCount() > 0)
+                {
+                    ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
+                    // Only banish if the threat is significant (2000+ ATK)
+                    if (target.Attack >= 2000)
+                    {
+                        AI.SelectCard(target);
+                        return true;
+                    }
+                }
             }
             return false;
+        }
+
+        private int CalculateOtherMonstersAttack()
+        {
+            // Calculate total attack damage from other monsters we control
+            int total = 0;
+            foreach (var monster in Bot.GetMonsters())
+            {
+                if (monster.Id != CardId.BlackLusterSoldier && monster.IsAttack())
+                {
+                    total += monster.Attack;
+                }
+            }
+            return total;
         }
 
         private bool SummonMaraudingCaptain()
