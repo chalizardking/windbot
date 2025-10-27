@@ -232,9 +232,30 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateBLS()
         {
-            // Always use for immediate game push
+            // Aggressive BLS usage - prioritize lethal damage
             if (Card.Location == CardLocation.MonsterZone && !Card.IsDisabled())
             {
+                int blsAttack = Card.Attack;
+
+                // Calculate total damage for lethal check
+                int damageWithoutEffect = blsAttack * 2 + CalculateOtherMonstersAttack();
+                int damageWithEffect = blsAttack + CalculateOtherMonstersAttack();
+
+                // If we can win without using effect, save it
+                if (damageWithoutEffect >= Enemy.LifePoints)
+                {
+                    return false; // Don't use effect, just attack twice
+                }
+
+                // If using effect leads to lethal, do it
+                if (damageWithEffect >= Enemy.LifePoints && Enemy.GetMonsterCount() > 0)
+                {
+                    ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
+                    AI.SelectCard(target);
+                    return true;
+                }
+
+                // Otherwise, banish biggest threat for aggressive push
                 if (Enemy.GetMonsterCount() > 0)
                 {
                     ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
@@ -243,6 +264,20 @@ namespace WindBot.Game.AI.Decks
                 }
             }
             return false;
+        }
+
+        private int CalculateOtherMonstersAttack()
+        {
+            // Calculate total damage from other attacking monsters
+            int total = 0;
+            foreach (var monster in Bot.GetMonsters())
+            {
+                if (monster.Id != CardId.BlackLusterSoldier && monster.IsAttack())
+                {
+                    total += monster.Attack;
+                }
+            }
+            return total;
         }
 
         private bool SummonChaosSorcerer()
