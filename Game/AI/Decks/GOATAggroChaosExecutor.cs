@@ -169,17 +169,70 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateBLS()
         {
-            // Always use for immediate game push
+            // Aggressive lethal damage checking
             if (Card.Location == CardLocation.MonsterZone && !Card.IsDisabled())
             {
                 if (Enemy.GetMonsterCount() > 0)
                 {
-                    ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
-                    AI.SelectCard(target);
+                    // Calculate lethal damage scenarios
+                    int blsAttack = Card.Attack;
+                    int otherMonstersAttack = CalculateOtherMonstersAttack();
+                    int enemyLP = Enemy.LifePoints;
+
+                    // Scenario 1: Check if double attack (no effect) is lethal
+                    int doubleAttackDamage = (blsAttack * 2) + otherMonstersAttack;
+                    if (doubleAttackDamage >= enemyLP)
+                    {
+                        // DON'T use effect - double attack wins game
+                        return false;
+                    }
+
+                    // Scenario 2: Check if banish + attack is lethal
+                    int banishAttackDamage = blsAttack + otherMonstersAttack;
+                    if (banishAttackDamage >= enemyLP)
+                    {
+                        // USE effect - removes blocker and wins game
+                        ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
+                        AI.SelectCard(target);
+                        return true;
+                    }
+
+                    // Scenario 3: Aggressive tempo - use effect more freely
+                    ClientCard strongestEnemy = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
+
+                    // Aggro deck: Lower threshold (1500+ ATK = significant)
+                    if (strongestEnemy.Attack >= 1500)
+                    {
+                        AI.SelectCard(strongestEnemy);
+                        return true;
+                    }
+
+                    // If can beat it in battle, save effect
+                    if (blsAttack > strongestEnemy.Attack)
+                    {
+                        return false;
+                    }
+
+                    // Can't beat it, use effect
+                    AI.SelectCard(strongestEnemy);
                     return true;
                 }
             }
             return false;
+        }
+
+        private int CalculateOtherMonstersAttack()
+        {
+            // Sum ATK of all Bot monsters except the current card
+            int totalAttack = 0;
+            foreach (ClientCard monster in Bot.GetMonsters())
+            {
+                if (monster != Card && monster.IsAttack())
+                {
+                    totalAttack += monster.Attack;
+                }
+            }
+            return totalAttack;
         }
 
         private bool SummonChaosSorcerer()
@@ -192,11 +245,47 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateChaosSorcerer()
         {
-            // Banish threats immediately for aggressive push
+            // Aggressive Chaos Sorcerer optimization
             if (Enemy.GetMonsters().Any(card => card.IsFaceup()))
             {
-                ClientCard target = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
-                AI.SelectCard(target);
+                int chaosAttack = Card.Attack; // 2300 ATK
+                int otherMonstersAttack = CalculateOtherMonstersAttack();
+                int enemyLP = Enemy.LifePoints;
+
+                // Check if attacking without using effect is lethal
+                int attackDamage = chaosAttack + otherMonstersAttack;
+                if (attackDamage >= enemyLP)
+                {
+                    // Don't use effect - attacking wins game
+                    return false;
+                }
+
+                // Check if using effect clears path for lethal
+                int banishDamage = otherMonstersAttack;
+                if (banishDamage >= enemyLP)
+                {
+                    // USE effect - clears blocker and other monsters win game
+                    ClientCard target = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
+                    AI.SelectCard(target);
+                    return true;
+                }
+
+                // Aggressive Chaos deck: Lower threshold (1500+ ATK = significant for tempo)
+                ClientCard strongestEnemy = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
+                if (strongestEnemy.Attack >= 1500)
+                {
+                    AI.SelectCard(strongestEnemy);
+                    return true;
+                }
+
+                // If Chaos Sorcerer can beat it in battle, save effect
+                if (chaosAttack > strongestEnemy.Attack)
+                {
+                    return false;
+                }
+
+                // Can't beat it, use effect
+                AI.SelectCard(strongestEnemy);
                 return true;
             }
             return false;
