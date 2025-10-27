@@ -145,20 +145,45 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateBookOfMoon()
         {
-            // Flip Morphing Jar face-down to reuse it
+            // Check deck-out win condition proximity first
+            bool opponentNearDeckOut = Enemy.Deck.Count <= 10;
+            bool weCanSurvive = Bot.Deck.Count > 5;
+
+            // Flip Morphing Jar face-down to reuse it for deck-out strategy
             ClientCard morphingJar = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MorphingJar && card.IsFaceup());
             if (morphingJar != null)
             {
-                AI.SelectCard(morphingJar);
-                return true;
+                // Only flip if opponent has enough deck to draw from
+                // (Morphing Jar makes both players discard hand and draw 5)
+                if (Enemy.Deck.Count >= 5 && Bot.Deck.Count >= 5)
+                {
+                    AI.SelectCard(morphingJar);
+                    return true;
+                }
+                // If opponent will deck out from this, do it even if we're close
+                else if (Enemy.Deck.Count < 5 && Enemy.Deck.Count < Bot.Deck.Count)
+                {
+                    AI.SelectCard(morphingJar);
+                    return true;
+                }
             }
 
             // Flip Magician of Faith for reuse
             ClientCard magician = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MagicianOfFaith && card.IsFaceup());
             if (magician != null && Bot.Graveyard.Any(card => card.IsSpell()))
             {
-                AI.SelectCard(magician);
-                return true;
+                // Prioritize recovering Book of Moon/Taiyou when close to winning
+                if (opponentNearDeckOut && weCanSurvive)
+                {
+                    AI.SelectCard(magician);
+                    return true;
+                }
+                // Otherwise flip if safe
+                else if (Bot.Deck.Count > 10)
+                {
+                    AI.SelectCard(magician);
+                    return true;
+                }
             }
 
             // Stop opponent's attack
