@@ -396,15 +396,37 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateTribeInfectingVirus()
         {
-            // Clear field when ahead
+            // Clear field when ahead - Smart discard prioritization
             if (Bot.LifePoints > Enemy.LifePoints && Enemy.GetMonsterCount() >= 2 && Bot.Hand.Count > 2)
             {
-                if (Bot.Hand.Any(card => card.Id == CardId.SinisterSerpent))
-                    AI.SelectCard(CardId.SinisterSerpent);
-                else if (Bot.Hand.Any(card => card.Id == CardId.NightAssailant))
+                // Priority 1: Night Assailant (returns to hand when discarded)
+                if (Bot.Hand.Any(card => card.Id == CardId.NightAssailant))
+                {
                     AI.SelectCard(CardId.NightAssailant);
-                else
-                    AI.SelectCard(Bot.Hand.OrderBy(card => card.Attack).First());
+                    return true;
+                }
+
+                // Priority 2: Sinister Serpent (returns during standby phase)
+                if (Bot.Hand.Any(card => card.Id == CardId.SinisterSerpent))
+                {
+                    AI.SelectCard(CardId.SinisterSerpent);
+                    return true;
+                }
+
+                // Priority 3: Weak monsters or cards we don't need
+                var weakMonster = Bot.Hand.Where(card => card.IsMonster()
+                    && card.Id != CardId.BlackLusterSoldier
+                    && card.Id != CardId.ChaosSorcerer
+                    && card.Attack <= 1500).OrderBy(card => card.Attack).FirstOrDefault();
+
+                if (weakMonster != null)
+                {
+                    AI.SelectCard(weakMonster);
+                    return true;
+                }
+
+                // Last resort: Discard lowest value card
+                AI.SelectCard(Bot.Hand.OrderBy(card => card.Attack).First());
                 return true;
             }
             return false;
