@@ -252,11 +252,50 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateChaosSorcerer()
         {
-            // Banish face-up threats repeatedly
+            // Context-aware Chaos Sorcerer effect optimization
             if (Enemy.GetMonsters().Any(card => card.IsFaceup()))
             {
-                ClientCard target = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
-                AI.SelectCard(target);
+                int chaosAttack = Card.Attack; // 2300 ATK
+                int otherMonstersAttack = CalculateOtherMonstersAttack();
+                int enemyLP = Enemy.LifePoints;
+
+                // Check if attacking without using effect is lethal
+                int attackDamage = chaosAttack + otherMonstersAttack;
+                if (attackDamage >= enemyLP)
+                {
+                    // Don't use effect - attacking wins game
+                    return false;
+                }
+
+                // Check if using effect clears path for lethal
+                // If we banish, Chaos Sorcerer can't attack but other monsters can
+                int banishDamage = otherMonstersAttack;
+                if (banishDamage >= enemyLP)
+                {
+                    // USE effect - clears blocker and other monsters win game
+                    ClientCard target = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
+                    AI.SelectCard(target);
+                    return true;
+                }
+
+                // Not lethal - threat assessment
+                ClientCard strongestEnemy = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
+
+                // Control Chaos deck: Higher threshold (1800+ ATK = significant)
+                if (strongestEnemy.Attack >= 1800)
+                {
+                    AI.SelectCard(strongestEnemy);
+                    return true;
+                }
+
+                // If Chaos Sorcerer can beat it in battle, save effect
+                if (chaosAttack > strongestEnemy.Attack)
+                {
+                    return false;
+                }
+
+                // Can't beat it, use effect
+                AI.SelectCard(strongestEnemy);
                 return true;
             }
             return false;
