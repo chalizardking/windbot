@@ -198,20 +198,34 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateBookOfTaiyou()
         {
-            // Flip Morphing Jar face-up to activate it again
+            // Flip Morphing Jar face-up to activate it again for deck-out win
             ClientCard morphingJar = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MorphingJar && card.IsFacedown());
             if (morphingJar != null)
             {
-                AI.SelectCard(morphingJar);
-                return true;
+                // Check if activating Morphing Jar is safe (both players draw 5)
+                if (Enemy.Deck.Count >= 5 && Bot.Deck.Count >= 5)
+                {
+                    AI.SelectCard(morphingJar);
+                    return true;
+                }
+                // If opponent will deck out but we won't, do it!
+                else if (Enemy.Deck.Count < 5 && Bot.Deck.Count >= 5)
+                {
+                    AI.SelectCard(morphingJar);
+                    return true;
+                }
             }
 
             // Flip Magician of Faith for effect
             ClientCard magician = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MagicianOfFaith && card.IsFacedown());
             if (magician != null && Bot.Graveyard.Any(card => card.IsSpell()))
             {
-                AI.SelectCard(magician);
-                return true;
+                // Only flip if we have enough deck left
+                if (Bot.Deck.Count > 5)
+                {
+                    AI.SelectCard(magician);
+                    return true;
+                }
             }
 
             return false;
