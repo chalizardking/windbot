@@ -50,7 +50,7 @@ namespace WindBot.Game.AI.Decks
         {
             // Draw spells
             AddExecutor(ExecutorType.Activate, CardId.PotOfGreed);
-            AddExecutor(ExecutorType.Activate, CardId.GracefulCharity);
+            AddExecutor(ExecutorType.Activate, CardId.GracefulCharity, ActivateGracefulCharity);
             AddExecutor(ExecutorType.Activate, CardId.DelinquentDuo);
 
             // Removal spells - clear path for attacks
