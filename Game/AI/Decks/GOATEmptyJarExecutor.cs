@@ -116,7 +116,23 @@ namespace WindBot.Game.AI.Decks
         private bool ActivateCardDestruction()
         {
             // Mill deck and cycle for combo pieces
-            return Bot.Hand.Count > 0;
+            if (Bot.Hand.Count == 0)
+                return false;
+
+            // Deck-out safety check
+            int botHandSize = Bot.Hand.Count;
+            int enemyHandSize = Enemy.Hand.Count;
+
+            // Don't activate if we would deck out first
+            if (Bot.Deck.Count <= botHandSize)
+                return false;
+
+            // IMMEDIATELY activate if enemy would deck out (game-winning)
+            if (Enemy.Deck.Count <= enemyHandSize)
+                return true;
+
+            // Safe to activate if both players can handle the mill
+            return true;
         }
 
         private bool ActivateBookOfMoon()
