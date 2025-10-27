@@ -101,7 +101,7 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateEquipSpell()
         {
-            // Equip to our strongest attacker
+            // Smart equip: Only equip if helps with OTK or board control
             if (Bot.GetMonsterCount() == 0)
                 return false;
 
@@ -109,6 +109,20 @@ namespace WindBot.Game.AI.Decks
             ClientCard mataza = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MatazaTheZapper);
             if (mataza != null)
             {
+                // Check if we can already OTK without this equip
+                int currentOtkDamage = CalculateOTKDamage();
+                if (currentOtkDamage >= Enemy.LifePoints)
+                {
+                    // Already have lethal - don't waste equips unless it's protection
+                    if (Card.Id == CardId.ReadyForIntercepting || Card.Id == CardId.KishidoSpirit)
+                    {
+                        AI.SelectCard(mataza);
+                        return true;
+                    }
+                    return false;
+                }
+
+                // We need more damage - equip to Mataza
                 AI.SelectCard(mataza);
                 return true;
             }
@@ -117,11 +131,86 @@ namespace WindBot.Game.AI.Decks
             ClientCard attacker = Bot.GetMonsters().OrderByDescending(card => card.Attack).FirstOrDefault();
             if (attacker != null)
             {
+                int currentOtkDamage = CalculateOTKDamage();
+                if (currentOtkDamage >= Enemy.LifePoints)
+                {
+                    // Already lethal - only equip protection
+                    if (Card.Id == CardId.ReadyForIntercepting || Card.Id == CardId.KishidoSpirit)
+                    {
+                        AI.SelectCard(attacker);
+                        return true;
+                    }
+                    return false;
+                }
+
                 AI.SelectCard(attacker);
                 return true;
             }
 
             return false;
+        }
+
+        private int CalculateOTKDamage()
+        {
+            // Calculate total damage we can deal this turn
+            int totalDamage = 0;
+
+            foreach (var monster in Bot.GetMonsters())
+            {
+                if (!monster.IsAttack()) continue;
+
+                int monsterDamage = monster.Attack;
+
+                // Check if monster has Fairy Meteor Crush (piercing)
+                bool hasPiercing = false;
+                if (monster.EquipCards != null)
+                {
+                    foreach (var equip in monster.EquipCards)
+                    {
+                        if (equip.Id == CardId.FairyMeteorCrush)
+                        {
+                            hasPiercing = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Calculate damage against enemy field
+                if (Enemy.GetMonsterCount() == 0)
+                {
+                    // Direct attack
+                    totalDamage += monsterDamage;
+                }
+                else
+                {
+                    // Estimate damage (assume we can attack over/through weakest monsters)
+                    var weakestEnemy = Enemy.GetMonsters().OrderBy(card => card.GetDefensePower()).FirstOrDefault();
+                    if (weakestEnemy != null)
+                    {
+                        if (hasPiercing)
+                        {
+                            // Piercing damage
+                            int piercingDamage = monsterDamage;
+                            if (weakestEnemy.IsDefense())
+                                piercingDamage += (monsterDamage - weakestEnemy.Defense);
+                            totalDamage += Math.Max(monsterDamage, piercingDamage);
+                        }
+                        else if (monsterDamage > weakestEnemy.Attack)
+                        {
+                            // Can attack over
+                            totalDamage += monsterDamage;
+                        }
+                    }
+                }
+
+                // Mataza can attack twice
+                if (monster.Id == CardId.MatazaTheZapper)
+                {
+                    totalDamage += monsterDamage;
+                }
+            }
+
+            return totalDamage;
         }
 
         private bool SummonSasukeSamurai()
