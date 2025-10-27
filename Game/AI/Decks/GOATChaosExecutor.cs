@@ -109,8 +109,94 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateGracefulCharity()
         {
-            // Try to send LIGHT/DARK to grave for Chaos summons
-            return true;
+            // Smart discard selection for Chaos strategy
+            // After drawing 3, we need to discard 2 cards
+            // Priority: Setup graveyard for BLS/Chaos Sorcerer summons
+
+            // This will be handled by OnSelectCard callback for actual discard selection
+            // For now, just activate when beneficial
+            return Bot.Hand.Count > 0;
+        }
+
+        public override IList<ClientCard> OnSelectCard(IList<ClientCard> cards, int min, int max, long hint, bool cancelable)
+        {
+            // Handle Graceful Charity discards intelligently
+            if (Card != null && Card.Id == CardId.GracefulCharity && min == 2 && max == 2)
+            {
+                List<ClientCard> toDiscard = new List<ClientCard>();
+
+                // Count current LIGHT/DARK in graveyard
+                int lightInGrave = Bot.Graveyard.Count(card => card.HasAttribute(CardAttribute.Light));
+                int darkInGrave = Bot.Graveyard.Count(card => card.HasAttribute(CardAttribute.Dark));
+
+                // Check if we have Chaos monsters in hand
+                bool hasBlsInHand = Bot.Hand.Any(c => c.Id == CardId.BlackLusterSoldier);
+                bool hasChaosInHand = Bot.Hand.Any(c => c.Id == CardId.ChaosSorcerer);
+                bool needsChaosSetup = hasBlsInHand || hasChaosInHand;
+
+                // Priority 1: Discard Night Assailant (returns to hand)
+                var nightAssailants = cards.Where(c => c.Id == CardId.NightAssailant).ToList();
+                foreach (var na in nightAssailants)
+                {
+                    if (toDiscard.Count < 2)
+                    {
+                        toDiscard.Add(na);
+                    }
+                }
+
+                if (toDiscard.Count < 2 && needsChaosSetup)
+                {
+                    // Priority 2: Balance LIGHT/DARK for Chaos summons
+                    if (lightInGrave == 0 || darkInGrave < lightInGrave)
+                    {
+                        // Need more DARK monsters
+                        var darkMonster = cards.Where(c => c.IsMonster() && c.HasAttribute(CardAttribute.Dark)
+                            && c.Id != CardId.BlackLusterSoldier && c.Id != CardId.ChaosSorcerer
+                            && !toDiscard.Contains(c)).FirstOrDefault();
+                        if (darkMonster != null)
+                            toDiscard.Add(darkMonster);
+                    }
+
+                    if (toDiscard.Count < 2 && (darkInGrave == 0 || lightInGrave < darkInGrave))
+                    {
+                        // Need more LIGHT monsters
+                        var lightMonster = cards.Where(c => c.IsMonster() && c.HasAttribute(CardAttribute.Light)
+                            && !toDiscard.Contains(c)).FirstOrDefault();
+                        if (lightMonster != null)
+                            toDiscard.Add(lightMonster);
+                    }
+                }
+
+                // Priority 3: Discard low-value cards (keep spells/traps, keep high-value monsters)
+                while (toDiscard.Count < 2)
+                {
+                    // Prefer discarding weak monsters over spells
+                    var weakMonster = cards.Where(c => c.IsMonster() && !toDiscard.Contains(c)
+                        && c.Id != CardId.BlackLusterSoldier && c.Id != CardId.ChaosSorcerer
+                        && c.Attack <= 1500).OrderBy(c => c.Attack).FirstOrDefault();
+
+                    if (weakMonster != null)
+                    {
+                        toDiscard.Add(weakMonster);
+                    }
+                    else
+                    {
+                        // Discard any non-essential card
+                        var anyCard = cards.Where(c => !toDiscard.Contains(c)
+                            && c.Id != CardId.BlackLusterSoldier && c.Id != CardId.ChaosSorcerer
+                            && c.Id != CardId.PotOfGreed).FirstOrDefault();
+                        if (anyCard != null)
+                            toDiscard.Add(anyCard);
+                        else
+                            break;
+                    }
+                }
+
+                if (toDiscard.Count == 2)
+                    return toDiscard;
+            }
+
+            return base.OnSelectCard(cards, min, max, hint, cancelable);
         }
 
         private bool ActivateScapegoat()
