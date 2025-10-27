@@ -105,23 +105,86 @@ namespace WindBot.Game.AI.Decks
             if (Bot.GetMonsterCount() == 0)
                 return false;
 
-            // Priority to Mataza (can attack twice)
-            ClientCard mataza = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MatazaTheZapper);
-            if (mataza != null)
+            // Calculate current OTK damage
+            int currentDamage = CalculateOTKDamage();
+
+            // If already lethal, don't waste equips (except protection)
+            if (currentDamage >= Enemy.LifePoints)
             {
-                AI.SelectCard(mataza);
-                return true;
+                // Only equip Ready for Intercepting (protection) if already lethal
+                if (Card.Id == CardId.ReadyForIntercepting)
+                {
+                    ClientCard mataza = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MatazaTheZapper);
+                    if (mataza != null)
+                    {
+                        AI.SelectCard(mataza);
+                        return true;
+                    }
+                }
+                return false; // Don't waste attack-boosting equips when already lethal
             }
 
-            // Otherwise equip to strongest attacker
-            ClientCard attacker = Bot.GetMonsters().OrderByDescending(card => card.Attack).FirstOrDefault();
-            if (attacker != null)
+            // Priority to Mataza (can attack twice)
+            ClientCard target = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MatazaTheZapper);
+            if (target == null)
             {
-                AI.SelectCard(attacker);
+                // Otherwise equip to strongest attacker
+                target = Bot.GetMonsters().OrderByDescending(card => card.Attack).FirstOrDefault();
+            }
+
+            if (target != null)
+            {
+                AI.SelectCard(target);
                 return true;
             }
 
             return false;
+        }
+
+        private int CalculateOTKDamage()
+        {
+            // Calculate total damage from all attack-capable monsters
+            int totalDamage = 0;
+
+            foreach (ClientCard monster in Bot.GetMonsters())
+            {
+                if (monster.IsAttack())
+                {
+                    int monsterDamage = monster.Attack;
+
+                    // Mataza the Zapper can attack twice
+                    if (monster.Id == CardId.MatazaTheZapper)
+                    {
+                        monsterDamage *= 2;
+                    }
+
+                    // Check if monster has Fairy Meteor Crush (piercing damage)
+                    bool hasPiercing = monster.EquipCards.Any(equip => equip.Id == CardId.FairyMeteorCrush);
+
+                    // If has piercing and enemy has defense position monsters, guaranteed damage
+                    if (hasPiercing && Enemy.GetMonsters().Any(m => m.IsDefense()))
+                    {
+                        totalDamage += monsterDamage; // Piercing ignores defense
+                    }
+                    // If enemy has no monsters, direct attack
+                    else if (Enemy.GetMonsterCount() == 0)
+                    {
+                        totalDamage += monsterDamage;
+                    }
+                    // If enemy has monsters in attack position, calculate battle damage
+                    else if (Enemy.GetMonsters().Any(m => m.IsAttack()))
+                    {
+                        // Assume we can attack over weakest enemy monster
+                        ClientCard weakestEnemy = Enemy.GetMonsters().Where(m => m.IsAttack()).OrderBy(m => m.Attack).FirstOrDefault();
+                        if (weakestEnemy != null && monster.Attack > weakestEnemy.Attack)
+                        {
+                            totalDamage += (monster.Attack - weakestEnemy.Attack);
+                        }
+                    }
+                }
+            }
+
+            return totalDamage;
         }
 
         private bool SummonSasukeSamurai()
@@ -140,7 +203,7 @@ namespace WindBot.Game.AI.Decks
                 if (damage >= Enemy.LifePoints)
                     return true;
             }
-            return base.OnPrePreBattleBetween(attacker, defender);
+            return base.OnPreBattleBetween(attacker, defender);
         }
     }
 }

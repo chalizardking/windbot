@@ -109,8 +109,119 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateGracefulCharity()
         {
-            // Try to send LIGHT/DARK to grave for Chaos summons
+            // OnSelectCard override will handle smart discards
             return true;
+        }
+
+        public override int OnSelectCard(IList<ClientCard> cards, int min, int max, int hint, bool cancelable)
+        {
+            // Detect Graceful Charity activation (discard 2 cards from hand of 5)
+            if (cards.Count == Bot.Hand.Count && min == 2 && max == 2 && cards.All(card => card.Location == CardLocation.Hand))
+            {
+                return PerformGracefulCharityDiscards(cards);
+            }
+
+            return base.OnSelectCard(cards, min, max, hint, cancelable);
+        }
+
+        private int PerformGracefulCharityDiscards(IList<ClientCard> handCards)
+        {
+            List<ClientCard> toDiscard = new List<ClientCard>();
+            List<ClientCard> availableCards = handCards.ToList();
+
+            // Priority 1: Night Assailant (returns to hand when discarded)
+            var nightAssailant = availableCards.FirstOrDefault(card => card.Id == CardId.NightAssailant);
+            if (nightAssailant != null)
+            {
+                toDiscard.Add(nightAssailant);
+                availableCards.Remove(nightAssailant);
+            }
+
+            // Priority 2: LIGHT/DARK balance for graveyard setup
+            if (toDiscard.Count < 2)
+            {
+                int graveyardLight = Bot.Graveyard.Count(card => card.HasAttribute(CardAttribute.Light));
+                int graveyardDark = Bot.Graveyard.Count(card => card.HasAttribute(CardAttribute.Dark));
+
+                ClientCard balanceCard = null;
+
+                if (graveyardLight < graveyardDark)
+                {
+                    // Need more LIGHT in graveyard
+                    balanceCard = availableCards.FirstOrDefault(card =>
+                        card.HasAttribute(CardAttribute.Light) &&
+                        card.Id != CardId.BlackLusterSoldier && // Don't discard key cards
+                        card.Id != CardId.ChaosSorcerer &&
+                        card.Id != CardId.PotOfGreed);
+                }
+                else if (graveyardDark < graveyardLight)
+                {
+                    // Need more DARK in graveyard
+                    balanceCard = availableCards.FirstOrDefault(card =>
+                        card.HasAttribute(CardAttribute.Dark) &&
+                        card.Id != CardId.BlackLusterSoldier &&
+                        card.Id != CardId.ChaosSorcerer &&
+                        card.Id != CardId.PotOfGreed);
+                }
+
+                if (balanceCard != null)
+                {
+                    toDiscard.Add(balanceCard);
+                    availableCards.Remove(balanceCard);
+                }
+            }
+
+            // Priority 3: Discard duplicates (keep one copy of each card)
+            if (toDiscard.Count < 2)
+            {
+                var duplicates = availableCards.GroupBy(card => card.Id)
+                                              .Where(group => group.Count() > 1)
+                                              .SelectMany(group => group.Skip(1))
+                                              .Where(card => card.Id != CardId.BlackLusterSoldier &&
+                                                           card.Id != CardId.ChaosSorcerer &&
+                                                           card.Id != CardId.PotOfGreed);
+
+                foreach (var duplicate in duplicates)
+                {
+                    if (toDiscard.Count >= 2) break;
+                    toDiscard.Add(duplicate);
+                    availableCards.Remove(duplicate);
+                }
+            }
+
+            // Priority 4: Discard least valuable remaining cards
+            while (toDiscard.Count < 2 && availableCards.Count > 0)
+            {
+                // Never discard these key cards
+                var keyCards = new[] { CardId.BlackLusterSoldier, CardId.ChaosSorcerer, CardId.PotOfGreed };
+                var nonKeyCards = availableCards.Where(card => !keyCards.Contains(card.Id)).ToList();
+
+                if (nonKeyCards.Count > 0)
+                {
+                    // Discard lowest ATK monster or situational spell
+                    var cardToDiscard = nonKeyCards.OrderBy(card => card.IsMonster() ? card.Attack : 0).First();
+                    toDiscard.Add(cardToDiscard);
+                    availableCards.Remove(cardToDiscard);
+                }
+                else if (availableCards.Count > 0)
+                {
+                    // Last resort: discard anything to fulfill requirement
+                    toDiscard.Add(availableCards.First());
+                    availableCards.Remove(availableCards.First());
+                }
+            }
+
+            // Return selection mask for the 2 cards to discard
+            int selection = 0;
+            for (int i = 0; i < handCards.Count; i++)
+            {
+                if (toDiscard.Contains(handCards[i]))
+                {
+                    selection |= (1 << i);
+                }
+            }
+
+            return selection;
         }
 
         private bool ActivateScapegoat()
@@ -178,15 +289,68 @@ namespace WindBot.Game.AI.Decks
             // Banish key threats or attack twice for game
             if (Card.Location == CardLocation.MonsterZone && !Card.IsDisabled())
             {
-                // Banish enemy's strongest monster
                 if (Enemy.GetMonsterCount() > 0)
                 {
-                    ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
-                    AI.SelectCard(target);
+                    // Calculate lethal damage scenarios
+                    int blsAttack = Card.Attack;
+                    int otherMonstersAttack = CalculateOtherMonstersAttack();
+                    int enemyLP = Enemy.LifePoints;
+
+                    // Scenario 1: Check if double attack (no effect) is lethal
+                    int doubleAttackDamage = (blsAttack * 2) + otherMonstersAttack;
+                    if (doubleAttackDamage >= enemyLP)
+                    {
+                        // DON'T use effect - double attack wins game
+                        return false;
+                    }
+
+                    // Scenario 2: Check if banish + attack is lethal
+                    int banishAttackDamage = blsAttack + otherMonstersAttack;
+                    if (banishAttackDamage >= enemyLP)
+                    {
+                        // USE effect - removes blocker and wins game
+                        ClientCard target = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
+                        AI.SelectCard(target);
+                        return true;
+                    }
+
+                    // Scenario 3: Not lethal - make smart board control decision
+                    ClientCard strongestEnemy = Enemy.GetMonsters().OrderByDescending(card => card.Attack).First();
+
+                    // Only banish significant threats (2000+ ATK)
+                    if (strongestEnemy.Attack >= 2000)
+                    {
+                        AI.SelectCard(strongestEnemy);
+                        return true;
+                    }
+
+                    // If threat is weak, check if we can beat it in battle
+                    if (blsAttack > strongestEnemy.Attack)
+                    {
+                        // Can beat it by attacking, save effect for later
+                        return false;
+                    }
+
+                    // Can't beat it by attacking, use effect
+                    AI.SelectCard(strongestEnemy);
                     return true;
                 }
             }
             return false;
+        }
+
+        private int CalculateOtherMonstersAttack()
+        {
+            // Sum ATK of all Bot monsters except the current card (BLS or Chaos Sorcerer)
+            int totalAttack = 0;
+            foreach (ClientCard monster in Bot.GetMonsters())
+            {
+                if (monster != Card && monster.IsAttack())
+                {
+                    totalAttack += monster.Attack;
+                }
+            }
+            return totalAttack;
         }
 
         private bool SummonChaosSorcerer()
@@ -199,11 +363,50 @@ namespace WindBot.Game.AI.Decks
 
         private bool ActivateChaosSorcerer()
         {
-            // Banish face-up threats repeatedly
+            // Context-aware Chaos Sorcerer effect optimization
             if (Enemy.GetMonsters().Any(card => card.IsFaceup()))
             {
-                ClientCard target = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
-                AI.SelectCard(target);
+                int chaosAttack = Card.Attack; // 2300 ATK
+                int otherMonstersAttack = CalculateOtherMonstersAttack();
+                int enemyLP = Enemy.LifePoints;
+
+                // Check if attacking without using effect is lethal
+                int attackDamage = chaosAttack + otherMonstersAttack;
+                if (attackDamage >= enemyLP)
+                {
+                    // Don't use effect - attacking wins game
+                    return false;
+                }
+
+                // Check if using effect clears path for lethal
+                // If we banish, Chaos Sorcerer can't attack but other monsters can
+                int banishDamage = otherMonstersAttack;
+                if (banishDamage >= enemyLP)
+                {
+                    // USE effect - clears blocker and other monsters win game
+                    ClientCard target = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
+                    AI.SelectCard(target);
+                    return true;
+                }
+
+                // Not lethal - threat assessment
+                ClientCard strongestEnemy = Enemy.GetMonsters().Where(card => card.IsFaceup()).OrderByDescending(card => card.Attack).First();
+
+                // Control Chaos deck: Higher threshold (1800+ ATK = significant)
+                if (strongestEnemy.Attack >= 1800)
+                {
+                    AI.SelectCard(strongestEnemy);
+                    return true;
+                }
+
+                // If Chaos Sorcerer can beat it in battle, save effect
+                if (chaosAttack > strongestEnemy.Attack)
+                {
+                    return false;
+                }
+
+                // Can't beat it, use effect
+                AI.SelectCard(strongestEnemy);
                 return true;
             }
             return false;
