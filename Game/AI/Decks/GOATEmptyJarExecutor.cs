@@ -141,8 +141,23 @@ namespace WindBot.Game.AI.Decks
             ClientCard morphingJar = Bot.GetMonsters().FirstOrDefault(card => card.Id == CardId.MorphingJar && card.IsFaceup());
             if (morphingJar != null)
             {
-                AI.SelectCard(morphingJar);
-                return true;
+                // Check if we can safely flip Morphing Jar later (when it activates)
+                // Morphing Jar will make both players discard hand and draw 5
+                if (Bot.Deck.Count >= 6) // Need buffer for safety
+                {
+                    // Priority: If enemy deck is low, this sets up for deck-out win
+                    if (Enemy.Deck.Count <= 10)
+                    {
+                        AI.SelectCard(morphingJar);
+                        return true;
+                    }
+                    // Otherwise, only flip if safe for us
+                    else if (Bot.Deck.Count >= 10)
+                    {
+                        AI.SelectCard(morphingJar);
+                        return true;
+                    }
+                }
             }
 
             // Flip Magician of Faith for reuse
