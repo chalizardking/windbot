@@ -116,6 +116,30 @@ namespace WindBot.Game.AI.Decks
         private bool ActivateCardDestruction()
         {
             // Mill deck and cycle for combo pieces
+            // But check if we'll deck out ourselves
+            int cardsToDiscard = Bot.Hand.Count;
+            int cardsWeDraw = cardsToDiscard;
+
+            if (Bot.Deck.Count < cardsWeDraw)
+            {
+                // We'll deck out - don't do it unless opponent decks out first
+                int enemyCardsToDiscard = Enemy.Hand.Count;
+                if (Enemy.Deck.Count < enemyCardsToDiscard && Enemy.Deck.Count <= Bot.Deck.Count)
+                {
+                    // Opponent decks out first - go for it!
+                    return true;
+                }
+                return false;
+            }
+
+            // Check if this brings opponent close to deck-out
+            int enemyCardsToDiscard = Enemy.Hand.Count;
+            if (Enemy.Deck.Count <= enemyCardsToDiscard + 5)
+            {
+                // Opponent is close to decking out - prioritize this
+                return true;
+            }
+
             return Bot.Hand.Count > 0;
         }
 
